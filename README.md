@@ -1,66 +1,67 @@
-# Model Registry - MLOps Component
+# MLOps Model Registry
 
-## Overview
+A production-ready Model Registry built with FastAPI, PostgreSQL, and pluggable artifact storage backends.
 
-Model Registry is a lightweight MLOps service built with FastAPI and PostgreSQL that enables teams to register, version, and manage machine learning models and their associated artifacts.
+This project provides a centralized repository for storing, versioning, and managing machine learning models and their artifacts.
 
-The system provides:
+## Features
 
-* Model registration and metadata management
+* Model management (CRUD operations)
 * Model versioning
 * Artifact upload and download
-* PostgreSQL-backed metadata storage
-* OpenAPI/Swagger documentation
-* Dockerized database deployment
+* PostgreSQL metadata storage
+* Alembic database migrations
+* Storage abstraction layer
+* Local filesystem storage
+* Google Cloud Storage (GCS) backend
+* REST API with OpenAPI documentation
+* FastAPI dependency injection architecture
 
 ---
 
 ## Architecture
 
 ```text
-                FastAPI
-                   │
-                   ▼
-          Model Registry API
-                   │
-         ┌─────────┴─────────┐
-         ▼                   ▼
-   PostgreSQL         Local Storage
-    Metadata            Artifacts
+                    ┌─────────────────────┐
+                    │      FastAPI        │
+                    │      REST API       │
+                    └──────────┬──────────┘
+                               │
+                               ▼
+                    ┌─────────────────────┐
+                    │   Service Layer     │
+                    └──────────┬──────────┘
+                               │
+                 ┌─────────────┴─────────────┐
+                 │                           │
+                 ▼                           ▼
+
+       ┌─────────────────┐        ┌─────────────────┐
+       │   PostgreSQL    │        │ Storage Backend │
+       │ Model Metadata  │        └────────┬────────┘
+       └─────────────────┘                 │
+                                           │
+                    ┌──────────────────────┴──────────────────────┐
+                    │                                             │
+                    ▼                                             ▼
+
+          ┌───────────────────┐                  ┌───────────────────┐
+          │ Local Filesystem  │                  │ Google Cloud      │
+          │ model_artifacts/  │                  │ Storage (GCS)     │
+          └───────────────────┘                  └───────────────────┘
 ```
-
-### Components
-
-* FastAPI – REST API layer
-* PostgreSQL – Stores model metadata
-* SQLAlchemy – ORM layer
-* Alembic – Database migrations
-* Local Filesystem Storage – Stores model artifacts
-* Docker Compose – Database orchestration
 
 ---
 
-## Features
+## Tech Stack
 
-### Model Management
-
-* Create models
-* Update models
-* Delete models
-* List models
-
-### Version Management
-
-* Create model versions
-* Track version stages (dev, staging, production)
-* Manage version metadata
-
-### Artifact Management
-
-* Upload model artifacts
-* Download artifacts
-* List stored artifacts
-* Maintain artifact metadata
+* Python 3.10+
+* FastAPI
+* SQLAlchemy
+* PostgreSQL
+* Alembic
+* Google Cloud Storage
+* Docker Compose
 
 ---
 
@@ -68,50 +69,98 @@ The system provides:
 
 ```text
 .
-├── app/
 ├── alembic/
+├── app/
+│   ├── routers/
+│   ├── storage/
+│   │   ├── base.py
+│   │   ├── local.py
+│   │   └── gcs.py
+│   ├── dependencies.py
+│   ├── models.py
+│   ├── schemas.py
+│   └── main.py
 ├── model_artifacts/
 ├── tests/
 ├── docker-compose.yml
-├── alembic.ini
-└── pyproject.toml
+├── pyproject.toml
+└── README.md
 ```
 
 ---
 
-## Local Setup
+## Environment Variables
 
-### Prerequisites
+Create a `.env` file:
 
-* Python 3.10+
-* Docker & Docker Compose
+```env
+DATABASE_URL=postgresql://user:password@localhost/modelregistry
 
-### Create Virtual Environment
+STORAGE_BACKEND=gcs
+
+GCS_BUCKET=mlops-model-registry-artifacts
+```
+
+### Local Storage
+
+```env
+STORAGE_BACKEND=local
+```
+
+### Google Cloud Storage
+
+```env
+STORAGE_BACKEND=gcs
+GCS_BUCKET=mlops-model-registry-artifacts
+```
+
+---
+
+## Local Development Setup
+
+### 1. Clone Repository
 
 ```bash
-python -m venv .venv
+git clone https://github.com/Upshivam786/mlops-model-registry.git
+cd mlops-model-registry
+```
+
+### 2. Create Virtual Environment
+
+```bash
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-### Install Dependencies
+### 3. Install Dependencies
 
 ```bash
-pip install fastapi sqlalchemy alembic psycopg2-binary uvicorn python-multipart pytest httpx
+pip install -U pip
+
+pip install \
+fastapi \
+uvicorn \
+sqlalchemy \
+alembic \
+psycopg2-binary \
+python-multipart \
+google-cloud-storage \
+python-dotenv
 ```
 
-### Start PostgreSQL
+### 4. Start PostgreSQL
 
 ```bash
 docker compose up -d
 ```
 
-### Apply Database Migrations
+### 5. Run Database Migrations
 
 ```bash
 alembic upgrade head
 ```
 
-### Start API Server
+### 6. Start API
 
 ```bash
 uvicorn app.main:app --reload
@@ -121,47 +170,97 @@ uvicorn app.main:app --reload
 
 ## API Documentation
 
-After startup:
-
 Swagger UI:
 
+```text
 http://localhost:8000/docs
+```
 
-ReDoc:
+OpenAPI JSON:
 
-http://localhost:8000/redoc
+```text
+http://localhost:8000/openapi.json
+```
 
 ---
 
 ## Example Workflow
 
-1. Create a model
-2. Create a version
-3. Upload model artifacts
-4. List stored artifacts
-5. Download artifacts
+### Create Model
 
-Example hierarchy:
+```bash
+curl -X POST \
+"http://localhost:8000/models/" \
+-H "Content-Type: application/json" \
+-d '{
+  "name":"sentiment-model",
+  "description":"NLP sentiment classifier"
+}'
+```
+
+### Create Version
+
+```bash
+curl -X POST \
+"http://localhost:8000/models/1/versions" \
+-H "Content-Type: application/json" \
+-d '{
+  "version":"1.0.0"
+}'
+```
+
+### Upload Artifact
+
+```bash
+curl -X POST \
+"http://localhost:8000/models/1/versions/1/artifacts" \
+-F "artifact_type=model" \
+-F "file=@model.pkl"
+```
+
+---
+
+## Storage Backends
+
+### Local Filesystem
+
+Artifacts stored in:
 
 ```text
-sentiment-model
-└── 1.0.0
-    └── test.txt
+model_artifacts/
+```
+
+### Google Cloud Storage
+
+Artifacts stored in:
+
+```text
+gs://<bucket-name>/models/<model-id>/versions/<version-id>/artifacts/
+```
+
+Verified with:
+
+```text
+gs://mlops-model-registry-artifacts/models/6/versions/3/artifacts/model.txt
 ```
 
 ---
 
 ## Future Improvements
 
-* S3 / MinIO storage backend
-* JWT authentication
-* Model promotion workflow
-* CI/CD pipelines
-* Kubernetes deployment
-* Model lineage tracking
+* S3 Storage Backend
+* Model Promotion Workflow
+* Authentication & Authorization
+* Signed Download URLs
+* Artifact Checksums
+* MLflow Integration
+* Kubernetes Deployment
+* CI/CD Pipeline
+* Terraform Infrastructure
+* Audit Logging
 
 ---
 
 ## License
 
-MIT
+MIT License
