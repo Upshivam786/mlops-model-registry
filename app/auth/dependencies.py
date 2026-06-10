@@ -18,7 +18,7 @@ from app.auth.security import (
 )
 
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/auth/login"
+    tokenUrl="/auth/login/swagger"
 )
 
 def get_current_user(
