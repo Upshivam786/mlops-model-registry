@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import models
 import os
 from sqlalchemy import create_engine
+from app.routers import auth
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -41,3 +42,7 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
+
+app.include_router(auth.router)
+
+

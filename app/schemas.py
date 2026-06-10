@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
+from pydantic import EmailStr
 
 # Model Schemas
 class ModelBase(BaseModel):
@@ -83,3 +84,29 @@ class ModelArtifactList(BaseModel):
     total: int
     page: int
     size: int
+
+class UserCreate(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+
+class UserRead(BaseModel):
+    id: int
+    username: str
+    email: EmailStr
+    role: str
+    is_active: bool
+
+    class Config:
+        from_attributes = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
