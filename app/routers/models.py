@@ -17,7 +17,9 @@ from app.models import User
 router = APIRouter(prefix="/models", tags=["models"])
 
 
-@router.post("/", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
+# ── Models ────────────────────────────────────────────────────────────────────
+
+@router.post("", response_model=ModelRead, status_code=status.HTTP_201_CREATED)
 def create_model(
     model: ModelCreate,
     db: Session = Depends(get_db),
@@ -33,7 +35,7 @@ def create_model(
     return db_model
 
 
-@router.get("/", response_model=ModelList)
+@router.get("", response_model=ModelList)
 def list_models(
     page: int = 1,
     size: int = 10,
@@ -92,6 +94,8 @@ def delete_model(
     db.commit()
     return None
 
+
+# ── Versions ──────────────────────────────────────────────────────────────────
 
 @router.post("/{model_id}/versions", response_model=ModelVersionRead, status_code=status.HTTP_201_CREATED)
 def create_model_version(
@@ -191,6 +195,8 @@ def delete_model_version(
     db.commit()
     return None
 
+
+# ── Artifacts ─────────────────────────────────────────────────────────────────
 
 @router.post("/{model_id}/versions/{version_id}/artifacts", response_model=ModelArtifactRead, status_code=status.HTTP_201_CREATED)
 def upload_model_artifact(

@@ -22,6 +22,7 @@ app = FastAPI(
     description="MLOps Model Registry for storing, versioning, and managing machine learning models",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,       # ← ADDED: no trailing slash redirects
 )
 
 app.add_middleware(
