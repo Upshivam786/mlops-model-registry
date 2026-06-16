@@ -2,10 +2,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
-from app.routers import models
+from app.routers import models, auth
+from app.routers import audit                  # ← Phase 2
 import os
 from sqlalchemy import create_engine
-from app.routers import auth
 
 security = HTTPBearer()
 
@@ -20,9 +20,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Model Registry API",
     description="MLOps Model Registry for storing, versioning, and managing machine learning models",
-    version="0.1.0",
+    version="0.2.0",                           # ← bumped to 0.2.0 for Phase 2
     lifespan=lifespan,
-    redirect_slashes=False,       # ← ADDED: no trailing slash redirects
+    redirect_slashes=False,
 )
 
 app.add_middleware(
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(models.router)
 app.include_router(auth.router)
+app.include_router(audit.router)               # ← Phase 2
 
 @app.get("/")
 def read_root():

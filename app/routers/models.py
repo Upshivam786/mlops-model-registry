@@ -10,9 +10,9 @@ from app.schemas import ModelVersionCreate, ModelVersionRead, ModelVersionList, 
 from app.schemas import ModelArtifactCreate, ModelArtifactRead, ModelArtifactList
 from app.storage.base import StorageBase
 from app.dependencies import get_db, get_storage
-
 from app.auth.dependencies import get_current_user, require_admin, require_ml_engineer
 from app.models import User
+from app.audit import write_audit_log          # ← Phase 2
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -30,6 +30,12 @@ def create_model(
         raise HTTPException(status_code=400, detail=f"Model with name '{model.name}' already exists")
     db_model = models.Model(**model.model_dump())
     db.add(db_model)
+    db.flush()                                 # get db_model.id before commit
+    write_audit_log(
+        db=db, user=current_user,
+        action="CREATE", resource_type="model", resource_id=db_model.id,
+        new_value={"name": db_model.name, "owner": db_model.owner},
+    )
     db.commit()
     db.refresh(db_model)
     return db_model
@@ -73,9 +79,15 @@ def update_model(
     db_model = db.query(models.Model).filter(models.Model.id == model_id).first()
     if not db_model:
         raise HTTPException(status_code=404, detail="Model not found")
+    old = {"description": db_model.description, "owner": db_model.owner, "tags": db_model.tags}
     update_data = model_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_model, field, value)
+    write_audit_log(
+        db=db, user=current_user,
+        action="UPDATE", resource_type="model", resource_id=db_model.id,
+        old_value=old, new_value=update_data,
+    )
     db.commit()
     db.refresh(db_model)
     return db_model
@@ -90,6 +102,11 @@ def delete_model(
     db_model = db.query(models.Model).filter(models.Model.id == model_id).first()
     if not db_model:
         raise HTTPException(status_code=404, detail="Model not found")
+    write_audit_log(
+        db=db, user=current_user,
+        action="DELETE", resource_type="model", resource_id=db_model.id,
+        old_value={"name": db_model.name},
+    )
     db.delete(db_model)
     db.commit()
     return None
@@ -115,6 +132,12 @@ def create_model_version(
         raise HTTPException(status_code=400, detail=f"Version '{version.version}' already exists for model {model_id}")
     db_version = models.ModelVersion(model_id=model_id, **version.model_dump())
     db.add(db_version)
+    db.flush()
+    write_audit_log(
+        db=db, user=current_user,
+        action="CREATE", resource_type="model_version", resource_id=db_version.id,
+        new_value={"model_id": model_id, "version": db_version.version, "stage": db_version.stage},
+    )
     db.commit()
     db.refresh(db_version)
     return db_version
@@ -170,9 +193,22 @@ def update_model_version(
     ).first()
     if not db_version:
         raise HTTPException(status_code=404, detail="Model version not found")
+
+    old_stage = db_version.stage
     update_data = version_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_version, field, value)
+
+    # Detect stage promotion specifically — important for Phase 2 approval workflow
+    new_stage = update_data.get("stage")
+    action = "PROMOTE" if new_stage and new_stage != old_stage else "UPDATE"
+
+    write_audit_log(
+        db=db, user=current_user,
+        action=action, resource_type="model_version", resource_id=db_version.id,
+        old_value={"stage": old_stage},
+        new_value=update_data,
+    )
     db.commit()
     db.refresh(db_version)
     return db_version
@@ -191,6 +227,11 @@ def delete_model_version(
     ).first()
     if not db_version:
         raise HTTPException(status_code=404, detail="Model version not found")
+    write_audit_log(
+        db=db, user=current_user,
+        action="DELETE", resource_type="model_version", resource_id=db_version.id,
+        old_value={"version": db_version.version, "stage": db_version.stage},
+    )
     db.delete(db_version)
     db.commit()
     return None
@@ -230,6 +271,12 @@ def upload_model_artifact(
         file_size=file_size
     )
     db.add(db_artifact)
+    db.flush()
+    write_audit_log(
+        db=db, user=current_user,
+        action="CREATE", resource_type="artifact", resource_id=db_artifact.id,
+        new_value={"artifact_type": artifact_type, "path": storage_path, "size": file_size},
+    )
     db.commit()
     db.refresh(db_artifact)
     return db_artifact
@@ -306,6 +353,11 @@ def delete_model_artifact(
     ).first()
     if not db_version:
         raise HTTPException(status_code=404, detail="Model version not found")
+    write_audit_log(
+        db=db, user=current_user,
+        action="DELETE", resource_type="artifact", resource_id=db_artifact.id,
+        old_value={"path": db_artifact.artifact_path, "type": db_artifact.artifact_type},
+    )
     storage.delete(db_artifact.artifact_path)
     db.delete(db_artifact)
     db.commit()
