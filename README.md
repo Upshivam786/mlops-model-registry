@@ -529,7 +529,38 @@ curl -s -o /dev/null -w "%{http_code}" \
 Expected: `401`, `403`, `200`, `201`, `403`, `204`
 
 ---
+---
 
+## Phase 2 — Audit Logging (Completed)
+
+Every write action in the system now produces an immutable record stored in the audit_logs table.
+
+### New files
+- app/audit.py — write_audit_log() helper
+- app/routers/audit.py — GET /audit-logs endpoint
+- alembic/versions/add_audit_logs_table.py — DB migration
+
+### Modified files
+- app/models.py — AuditLog ORM added
+- app/routers/models.py — audit logging wired into every write route
+- app/schemas.py — AuditLogRead and AuditLogList schemas added
+- app/main.py — audit router registered, version bumped to 0.2.0
+
+### Audit log endpoint
+
+GET /audit-logs                        (admin only)
+GET /audit-logs?action=PROMOTE
+GET /audit-logs?resource_type=model_version
+GET /audit-logs?username=shivam
+
+### Actions tracked
+CREATE   — model, version, or artifact created
+UPDATE   — metadata changed
+DELETE   — resource deleted
+PROMOTE  — version stage changed (dev → staging → prod → archived)
+
+### Run migration
+alembic upgrade head
 ## Future Improvements
 
 - S3 Storage Backend (AWS)
