@@ -561,6 +561,97 @@ PROMOTE  — version stage changed (dev → staging → prod → archived)
 
 ### Run migration
 alembic upgrade head
+
+## Phase 3 — Experiment Tracking (Completed)
+
+### Overview
+
+Phase 3 extends the Model Registry with experiment tracking capabilities. Training metadata, hyperparameters, and evaluation metrics are now stored as queryable records in PostgreSQL instead of being available only through artifact files.
+
+### Features
+
+* Training run tracking per model version
+* Dataset lineage tracking via dataset hashes
+* Hyperparameter storage
+* Metrics storage and querying
+* Version comparison APIs
+* Experiment search and filtering
+* Pagination and sorting support
+
+### Training Run Metadata
+
+Each training run stores:
+
+* Dataset name
+* Dataset hash
+* Hyperparameters
+* Metrics
+* Learning rate
+* Epochs
+* Batch size
+* Framework and framework version
+* Training duration
+* User who created the run
+
+### New API Endpoints
+
+#### Create Training Run
+
+```http
+POST /models/{model_id}/versions/{version_id}/training-run
+```
+
+#### Get Training Run
+
+```http
+GET /models/{model_id}/versions/{version_id}/training-run
+```
+
+#### Compare Model Versions
+
+```http
+GET /models/{model_id}/versions/compare
+```
+
+#### Query Experiments
+
+```http
+GET /experiments
+```
+
+Supported filters:
+
+* min_accuracy
+* stage
+* sort_by
+* order
+* page
+* size
+
+### Example Queries
+
+```http
+GET /experiments?min_accuracy=0.90
+```
+
+```http
+GET /experiments?stage=prod&sort_by=f1_score&order=desc
+```
+
+### Technology Stack
+
+* FastAPI
+* PostgreSQL
+* SQLAlchemy
+* Alembic
+* Docker
+* JWT Authentication
+* RBAC
+* Google Cloud Storage
+* Audit Logging
+* Experiment Tracking
+
+
 ## Future Improvements
 
 - S3 Storage Backend (AWS)

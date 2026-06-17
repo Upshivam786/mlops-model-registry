@@ -71,3 +71,13 @@ docker-compose.override.yml
 #kimchi
 .kimchi/
 test.txt
+
+# Backup files
+*.bak
+*.bkp
+*.phase1.bak
+*.phase2.bak
+
+# Python cache
+__pycache__/
+*.pyc
