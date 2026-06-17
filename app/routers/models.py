@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -8,11 +8,12 @@ from app import models
 from app.schemas import ModelCreate, ModelRead, ModelUpdate, ModelList
 from app.schemas import ModelVersionCreate, ModelVersionRead, ModelVersionList, ModelVersionUpdate
 from app.schemas import ModelArtifactCreate, ModelArtifactRead, ModelArtifactList
+from app.schemas import ExperimentSummary, ExperimentList      # ← Phase 3
 from app.storage.base import StorageBase
 from app.dependencies import get_db, get_storage
 from app.auth.dependencies import get_current_user, require_admin, require_ml_engineer
-from app.models import User
-from app.audit import write_audit_log          # ← Phase 2
+from app.models import User, TrainingRun, ModelVersion         # ← Phase 3
+from app.audit import write_audit_log
 
 router = APIRouter(prefix="/models", tags=["models"])
 
@@ -30,7 +31,7 @@ def create_model(
         raise HTTPException(status_code=400, detail=f"Model with name '{model.name}' already exists")
     db_model = models.Model(**model.model_dump())
     db.add(db_model)
-    db.flush()                                 # get db_model.id before commit
+    db.flush()
     write_audit_log(
         db=db, user=current_user,
         action="CREATE", resource_type="model", resource_id=db_model.id,
@@ -163,6 +164,64 @@ def list_model_versions(
     return ModelVersionList(versions=versions, total=total, page=page, size=size)
 
 
+# ── IMPORTANT: compare MUST be before /{version_id} ──────────────────────────
+# FastAPI matches routes top-to-bottom. "compare" would be parsed as
+# {version_id} integer and fail if this route comes after /{version_id}.
+
+@router.get("/{model_id}/versions/compare", response_model=ExperimentList)
+def compare_versions(
+    model_id: int,
+    page: int = Query(1, ge=1),
+    size: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Compare all versions of a model side by side with training metrics.
+    Sorted by accuracy descending so the best version is always first.
+    """
+    db_model = db.query(models.Model).filter(models.Model.id == model_id).first()
+    if not db_model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    rows = (
+        db.query(models.ModelVersion, TrainingRun)
+        .outerjoin(TrainingRun, TrainingRun.version_id == models.ModelVersion.id)
+        .filter(models.ModelVersion.model_id == model_id)
+        .order_by(TrainingRun.accuracy.desc().nullslast())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+
+    total = db.query(models.ModelVersion).filter(models.ModelVersion.model_id == model_id).count()
+
+    results = []
+    for version, run in rows:
+        results.append(ExperimentSummary(
+            version_id        = version.id,
+            version           = version.version,
+            stage             = version.stage,
+            model_id          = model_id,
+            model_name        = db_model.name,
+            accuracy          = run.accuracy          if run else None,
+            f1_score          = run.f1_score          if run else None,
+            loss              = run.loss              if run else None,
+            learning_rate     = run.learning_rate     if run else None,
+            epochs            = run.epochs            if run else None,
+            batch_size        = run.batch_size        if run else None,
+            dataset_name      = run.dataset_name      if run else None,
+            framework         = run.framework         if run else None,
+            training_duration = run.training_duration if run else None,
+            created_by        = run.created_by        if run else version.version,
+            created_at        = run.created_at        if run else version.created_at,
+        ))
+
+    return ExperimentList(experiments=results, total=total, page=page, size=size)
+
+
+# ── /{version_id} routes AFTER compare ───────────────────────────────────────
+
 @router.get("/{model_id}/versions/{version_id}", response_model=ModelVersionRead)
 def get_model_version(
     model_id: int,
@@ -193,21 +252,16 @@ def update_model_version(
     ).first()
     if not db_version:
         raise HTTPException(status_code=404, detail="Model version not found")
-
     old_stage = db_version.stage
     update_data = version_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_version, field, value)
-
-    # Detect stage promotion specifically — important for Phase 2 approval workflow
     new_stage = update_data.get("stage")
     action = "PROMOTE" if new_stage and new_stage != old_stage else "UPDATE"
-
     write_audit_log(
         db=db, user=current_user,
         action=action, resource_type="model_version", resource_id=db_version.id,
-        old_value={"stage": old_stage},
-        new_value=update_data,
+        old_value={"stage": old_stage}, new_value=update_data,
     )
     db.commit()
     db.refresh(db_version)
