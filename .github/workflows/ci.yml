@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/**]
+    branches: [main, "feature/**"]
   pull_request:
     branches: [main]
 
@@ -11,23 +11,7 @@ jobs:
     name: Run test suite
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: password
-          POSTGRES_DB: modelregistry_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     env:
-      DATABASE_URL: postgresql://user:password@localhost:5432/modelregistry_test
       SECRET_KEY: ci-test-secret-key-not-for-production
       STORAGE_BACKEND: local
       STORAGE_BASE_PATH: /tmp/model_artifacts
@@ -60,21 +44,12 @@ jobs:
             psycopg2-binary \
             python-multipart \
             python-dotenv \
-            python-jose[cryptography] \
-            passlib[bcrypt] \
+            "python-jose[cryptography]" \
+            "passlib[bcrypt]" \
             email-validator \
             pytest \
-            httpx
-
-      - name: Run database migrations
-        run: alembic upgrade head
+            httpx \
+            aiosqlite
 
       - name: Run tests
         run: pytest tests/test_api.py -v --tb=short
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: .pytest_cache/
