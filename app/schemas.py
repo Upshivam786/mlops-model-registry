@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Any
+from typing import Optional, List
 from datetime import datetime
 from pydantic import EmailStr
 
@@ -109,6 +109,7 @@ class UserRead(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None   # ← Phase 4D: returned on login
     token_type: str
 
 class LoginRequest(BaseModel):
@@ -138,47 +139,33 @@ class AuditLogList(BaseModel):
     size: int
 
 
-# ── Training Run Schemas (Phase 3) ────────────────────────────────────────────
+# ── Training Run Schemas ──────────────────────────────────────────────────────
 
 class TrainingRunCreate(BaseModel):
-    """
-    Logged by the data scientist after training completes.
-    All fields optional except metrics — at minimum log what you measured.
-    """
-    # Dataset
     dataset_name:      Optional[str]   = None
     dataset_hash:      Optional[str]   = None
-
-    # Hyperparameters — pass full dict, key ones extracted automatically
     hyperparameters:   Optional[dict]  = None
     learning_rate:     Optional[float] = None
     epochs:            Optional[int]   = None
     batch_size:        Optional[int]   = None
-
-    # Metrics — pass full dict, key ones extracted automatically
     metrics:           Optional[dict]  = None
     accuracy:          Optional[float] = Field(None, ge=0.0, le=1.0)
     f1_score:          Optional[float] = Field(None, ge=0.0, le=1.0)
     loss:              Optional[float] = None
-
-    # Framework
     framework:         Optional[str]   = None
     framework_version: Optional[str]   = None
-
-    # Duration in seconds
     training_duration: Optional[int]   = None
-
 
 class TrainingRunRead(BaseModel):
     id:                int
     version_id:        int
     dataset_name:      Optional[str]
     dataset_hash:      Optional[str]
-    hyperparameters:   Optional[str]   # stored as JSON string
+    hyperparameters:   Optional[str]
     learning_rate:     Optional[float]
     epochs:            Optional[int]
     batch_size:        Optional[int]
-    metrics:           Optional[str]   # stored as JSON string
+    metrics:           Optional[str]
     accuracy:          Optional[float]
     f1_score:          Optional[float]
     loss:              Optional[float]
@@ -187,16 +174,10 @@ class TrainingRunRead(BaseModel):
     training_duration: Optional[int]
     created_by:        str
     created_at:        datetime
-
     class Config:
         from_attributes = True
 
-
 class ExperimentSummary(BaseModel):
-    """
-    Flattened view for comparing versions side by side.
-    Returned by GET /experiments and GET /models/{id}/versions/compare
-    """
     version_id:        int
     version:           str
     stage:             str
@@ -213,10 +194,8 @@ class ExperimentSummary(BaseModel):
     training_duration: Optional[int]
     created_by:        str
     created_at:        datetime
-
     class Config:
         from_attributes = True
-
 
 class ExperimentList(BaseModel):
     experiments: List[ExperimentSummary]

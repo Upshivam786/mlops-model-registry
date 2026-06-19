@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feature/**]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Run test suite
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: modelregistry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://user:password@localhost:5432/modelregistry_test
+      SECRET_KEY: ci-test-secret-key-not-for-production
+      STORAGE_BACKEND: local
+      STORAGE_BASE_PATH: /tmp/model_artifacts
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          pip install -U pip
+          pip install \
+            fastapi \
+            uvicorn \
+            sqlalchemy \
+            alembic \
+            psycopg2-binary \
+            python-multipart \
+            python-dotenv \
+            python-jose[cryptography] \
+            passlib[bcrypt] \
+            email-validator \
+            pytest \
+            httpx
+
+      - name: Run database migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest tests/test_api.py -v --tb=short
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: .pytest_cache/
