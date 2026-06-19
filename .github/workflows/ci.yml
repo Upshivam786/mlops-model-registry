@@ -37,7 +37,8 @@ jobs:
             python-multipart \
             python-dotenv \
             "python-jose[cryptography]" \
-            "passlib[bcrypt]" \
+            "bcrypt==4.0.1" \
+            "passlib[bcrypt]==1.7.4" \
             "email-validator>=2.1.0" \
             "pytest>=7.4.0" \
             "httpx>=0.25.0"
@@ -46,4 +47,4 @@ jobs:
         run: pip list | grep -E "passlib|bcrypt|fastapi|sqlalchemy|pytest|httpx"
 
       - name: Run tests
-        run: pytest tests/test_api.py -v --tb=long -s
+        run: pytest tests/test_api.py -v --tb=short
