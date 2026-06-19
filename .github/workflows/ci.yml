@@ -25,31 +25,25 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
-
       - name: Install dependencies
         run: |
           pip install -U pip
           pip install \
-            fastapi \
-            uvicorn \
-            sqlalchemy \
-            alembic \
+            "fastapi>=0.100.0" \
+            "uvicorn>=0.24.0" \
+            "sqlalchemy>=2.0.0" \
+            "alembic>=1.12.0" \
             psycopg2-binary \
             python-multipart \
             python-dotenv \
             "python-jose[cryptography]" \
             "passlib[bcrypt]" \
-            email-validator \
-            pytest \
-            httpx \
-            aiosqlite
+            "email-validator>=2.1.0" \
+            "pytest>=7.4.0" \
+            "httpx>=0.25.0"
+
+      - name: Show installed versions
+        run: pip list | grep -E "passlib|bcrypt|fastapi|sqlalchemy|pytest|httpx"
 
       - name: Run tests
-        run: pytest tests/test_api.py -v --tb=short
+        run: pytest tests/test_api.py -v --tb=long -s
