@@ -202,3 +202,90 @@ class ExperimentList(BaseModel):
     total: int
     page: int
     size: int
+
+
+# ── Model Card Schemas ────────────────────────────────────────────────────────  ← Phase 5B
+
+class ModelCardCreate(BaseModel):
+    intended_use:                Optional[str] = None
+    limitations:                 Optional[str] = None
+    ethical_considerations:      Optional[str] = None
+    training_data_summary:       Optional[str] = None
+    evaluation_summary:          Optional[str] = None
+    caveats_and_recommendations: Optional[str] = None
+
+class ModelCardUpdate(BaseModel):
+    intended_use:                Optional[str] = None
+    limitations:                 Optional[str] = None
+    ethical_considerations:      Optional[str] = None
+    training_data_summary:       Optional[str] = None
+    evaluation_summary:          Optional[str] = None
+    caveats_and_recommendations: Optional[str] = None
+
+class ModelCardRead(BaseModel):
+    id:                          int
+    version_id:                 int
+    intended_use:                Optional[str]
+    limitations:                 Optional[str]
+    ethical_considerations:      Optional[str]
+    training_data_summary:       Optional[str]
+    evaluation_summary:          Optional[str]
+    caveats_and_recommendations: Optional[str]
+    created_by:                 str
+    created_at:                 datetime
+    updated_at:                 datetime
+    class Config:
+        from_attributes = True
+
+
+# ── Data Lineage Schemas ──────────────────────────────────────────────────────  ← Phase 5C
+
+class DatasetLinkCreate(BaseModel):
+    dataset_name: str = Field(..., max_length=255)
+    dataset_hash: str = Field(..., max_length=255)
+    dataset_uri:  Optional[str] = Field(None, max_length=500)
+    role:         str = Field(default="training", max_length=50)
+    row_count:    Optional[int] = None
+    notes:        Optional[str] = None
+
+class DatasetLinkRead(BaseModel):
+    id:            int
+    version_id:    int
+    dataset_name:  str
+    dataset_hash:  str
+    dataset_uri:   Optional[str]
+    role:          str
+    row_count:     Optional[int]
+    notes:         Optional[str]
+    linked_by:     str
+    created_at:    datetime
+    class Config:
+        from_attributes = True
+
+class DatasetLinkList(BaseModel):
+    links: List[DatasetLinkRead]
+    total: int
+    page: int
+    size: int
+
+class LineageVersionSummary(BaseModel):
+    """One model version that used a given dataset — returned by the
+    dataset-centric lineage query (GET /lineage/dataset/{hash})."""
+    version_id:   int
+    version:      str
+    stage:        str
+    model_id:     int
+    model_name:   str
+    role:         str
+    linked_by:    str
+    created_at:   datetime
+    class Config:
+        from_attributes = True
+
+class DatasetLineage(BaseModel):
+    """Full lineage view for a dataset hash: every model version that
+    consumed it, across the whole registry."""
+    dataset_hash: str
+    dataset_name: Optional[str] = None
+    versions:     List[LineageVersionSummary]
+    total:        int

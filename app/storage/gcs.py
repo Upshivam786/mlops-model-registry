@@ -1,3 +1,4 @@
+import datetime
 import logging
 import os
 from io import BytesIO
@@ -111,3 +112,59 @@ class GCSStorage(StorageBase):
         object_name = self._normalize_path(path)
 
         return self.bucket.blob(object_name).exists()
+
+    # ── Phase 5A — Signed Download URLs ─────────────────────────────────────
+
+    def get_signed_url(self, path: str, expiration_seconds: int = 3600) -> Optional[str]:
+        """
+        Generate a V4 signed URL for direct GET access to a blob, bypassing
+        the API entirely for the actual file transfer.
+
+        IMPORTANT: This NEVER raises. Signed URL generation can fail for
+        reasons that have nothing to do with whether the file exists —
+        most commonly, Application Default Credentials (from
+        `gcloud auth application-default login`) cannot sign URLs because
+        they lack a private key. V4 signing requires either:
+          - a service account JSON key file (GOOGLE_APPLICATION_CREDENTIALS
+            pointing at a key file, not just ADC), or
+          - explicit impersonation via IAM Credentials API.
+
+        If signing fails for any reason, this logs a warning and returns
+        None so the caller falls back to streaming the file through the API.
+        """
+        object_name = self._normalize_path(path)
+
+        try:
+            blob = self.bucket.blob(object_name)
+
+            if not blob.exists():
+                logger.warning(
+                    "get_signed_url: blob does not exist: %s", object_name
+                )
+                return None
+
+            url = blob.generate_signed_url(
+                version="v4",
+                expiration=datetime.timedelta(seconds=expiration_seconds),
+                method="GET",
+            )
+
+            logger.info(
+                "Generated signed URL for %s (expires in %ss)",
+                object_name,
+                expiration_seconds,
+            )
+
+            return url
+
+        except Exception as e:
+            # Signing can fail due to missing private key on ADC credentials,
+            # IAM permission issues, or transient GCS errors. None of these
+            # should ever surface as a 500 to the user — the download route
+            # falls back to streaming instead.
+            logger.warning(
+                "get_signed_url failed for %s, falling back to streaming: %s",
+                object_name,
+                e,
+            )
+            return None

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer
 from app.routers import models, auth, audit, experiments
 from app.routers import admin                              # ← Phase 4C
+from app.routers import model_cards, lineage                # ← Phase 5B, 5C
 import os
 from sqlalchemy import create_engine
 
@@ -20,7 +21,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Model Registry API",
     description="MLOps Model Registry for storing, versioning, and managing machine learning models",
-    version="0.4.0",                                      # ← bumped for Phase 4
+    version="0.5.0",                                      # ← bumped for Phase 5
     lifespan=lifespan,
     redirect_slashes=False,
 )
@@ -38,6 +39,8 @@ app.include_router(auth.router)
 app.include_router(audit.router)
 app.include_router(experiments.router)
 app.include_router(admin.router)                          # ← Phase 4C
+app.include_router(model_cards.router)                    # ← Phase 5B
+app.include_router(lineage.router)                         # ← Phase 5C
 
 @app.get("/")
 def read_root():
