@@ -65,3 +65,23 @@ class StorageBase(ABC):
             bool: True if file exists, False otherwise
         """
         pass
+
+    # ── Phase 5A ────────────────────────────────────────────────────────────
+    def get_signed_url(self, path: str, expiration_seconds: int = 3600) -> Optional[str]:
+        """Return a time-limited direct-download URL for a file, if the
+        backend supports it.
+
+        This is intentionally NOT an @abstractmethod. Backends that can't
+        produce a signed URL (e.g. LocalStorage) simply inherit this default
+        and return None — callers (the download route) must check for None
+        and fall back to streaming the file through the API instead of
+        raising an exception.
+
+        Args:
+            path: Storage path of the file
+            expiration_seconds: How long the URL should remain valid
+
+        Returns:
+            Optional[str]: A signed URL, or None if unsupported / failed
+        """
+        return None

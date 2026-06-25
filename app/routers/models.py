@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import math
@@ -427,6 +427,15 @@ def download_model_artifact(
     storage: StorageBase = Depends(get_storage),
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Phase 5A: tries a signed URL first so large artifacts go directly from
+    GCS to the client instead of being streamed through the API process.
+    Falls back to the original streaming behavior if the backend doesn't
+    support signed URLs (LocalStorage) or if signing fails for any reason
+    (e.g. ADC credentials without a private key — see gcs.py for details).
+    get_signed_url() is guaranteed to never raise, only return None on
+    failure, so this fallback is safe.
+    """
     db_artifact = db.query(models.ModelArtifact).filter(
         models.ModelArtifact.id == artifact_id,
         models.ModelArtifact.version_id == version_id
@@ -439,6 +448,12 @@ def download_model_artifact(
     ).first()
     if not db_version:
         raise HTTPException(status_code=404, detail="Model version not found")
+
+    signed_url = storage.get_signed_url(db_artifact.artifact_path)
+    if signed_url:
+        return RedirectResponse(url=signed_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+    # Fallback: stream through the API (original Phase 1 behavior)
     file_data = storage.load(db_artifact.artifact_path)
     content = file_data.read()
     file_data.close()

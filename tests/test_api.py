@@ -399,3 +399,207 @@ def test_admin_cannot_change_own_role(client, tokens):
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+# ── Model Cards (Phase 5B) ────────────────────────────────────────────────────
+
+def test_create_card(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    r   = client.post(f"/models/{mid}/versions/{vid}/card",
+        json={"intended_use": "Test classification", "limitations": "Not for production"},
+        headers=h,
+    )
+    assert r.status_code == 201
+    assert r.json()["intended_use"] == "Test classification"
+    assert r.json()["created_by"] == "ml_user"
+
+def test_get_card(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardgm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "x"}, headers=h)
+    r = client.get(f"/models/{mid}/versions/{vid}/card", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.json()["intended_use"] == "x"
+
+def test_get_card_not_found(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardnf"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    r = client.get(f"/models/{mid}/versions/{vid}/card", headers=auth(tokens["viewer"]))
+    assert r.status_code == 404
+
+def test_update_card(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardum"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/card", json={"limitations": "original"}, headers=h)
+    r = client.put(f"/models/{mid}/versions/{vid}/card", json={"limitations": "updated"}, headers=h)
+    assert r.status_code == 200
+    assert r.json()["limitations"] == "updated"
+
+def test_duplicate_card_create(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "carddup"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "first"}, headers=h)
+    r = client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "second"}, headers=h)
+    assert r.status_code == 400
+
+def test_delete_card(client, tokens):
+    h_ml    = auth(tokens["ml"])
+    h_admin = auth(tokens["admin"])
+    mid = client.post("/models", json={"name": "carddel"}, headers=h_ml).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h_ml).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "x"}, headers=h_ml)
+    assert client.delete(f"/models/{mid}/versions/{vid}/card", headers=h_admin).status_code == 204
+    assert client.get(f"/models/{mid}/versions/{vid}/card", headers=h_ml).status_code == 404
+
+def test_viewer_cannot_create_card(client, tokens):
+    h_ml = auth(tokens["ml"])
+    mid  = client.post("/models", json={"name": "cardrbac"}, headers=h_ml).json()["id"]
+    vid  = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h_ml).json()["id"]
+    r = client.post(f"/models/{mid}/versions/{vid}/card",
+        json={"intended_use": "x"}, headers=auth(tokens["viewer"]))
+    assert r.status_code == 403
+
+def test_ml_engineer_can_create_card(client, tokens):
+    """ml_engineer is the intended day-to-day author of model cards, not just admin."""
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardml"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    r = client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "x"}, headers=h)
+    assert r.status_code == 201
+
+def test_ml_engineer_cannot_delete_card(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "cardmldel"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/card", json={"intended_use": "x"}, headers=h)
+    r = client.delete(f"/models/{mid}/versions/{vid}/card", headers=h)
+    assert r.status_code == 403
+
+
+# ── Data Lineage (Phase 5C) ───────────────────────────────────────────────────
+
+def test_link_dataset(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "linm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    r   = client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-aaa", "role": "training", "row_count": 100},
+        headers=h,
+    )
+    assert r.status_code == 201
+    assert r.json()["linked_by"] == "ml_user"
+
+def test_list_version_datasets(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "linlm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-bbb"}, headers=h)
+    r = client.get(f"/models/{mid}/versions/{vid}/datasets", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+
+def test_delete_dataset_link_round_trip(client, tokens):
+    """POST -> GET (total=1) -> DELETE -> GET (total=0)."""
+    h_ml    = auth(tokens["ml"])
+    h_admin = auth(tokens["admin"])
+    mid = client.post("/models", json={"name": "lindelm"}, headers=h_ml).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h_ml).json()["id"]
+    link_id = client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-ccc"}, headers=h_ml).json()["id"]
+
+    r1 = client.get(f"/models/{mid}/versions/{vid}/datasets", headers=h_ml)
+    assert r1.json()["total"] == 1
+
+    r2 = client.delete(f"/models/{mid}/versions/{vid}/datasets/{link_id}", headers=h_admin)
+    assert r2.status_code == 204
+
+    r3 = client.get(f"/models/{mid}/versions/{vid}/datasets", headers=h_ml)
+    assert r3.json()["total"] == 0
+
+def test_ml_engineer_cannot_delete_dataset_link(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "lindelrbac"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    link_id = client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-ddd"}, headers=h).json()["id"]
+    r = client.delete(f"/models/{mid}/versions/{vid}/datasets/{link_id}", headers=h)
+    assert r.status_code == 403
+
+def test_viewer_cannot_link_dataset(client, tokens):
+    h_ml = auth(tokens["ml"])
+    mid  = client.post("/models", json={"name": "linrbac"}, headers=h_ml).json()["id"]
+    vid  = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h_ml).json()["id"]
+    r = client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-eee"}, headers=auth(tokens["viewer"]))
+    assert r.status_code == 403
+
+def test_lineage_by_dataset_hash(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "linhashm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "shared-ds", "dataset_hash": "hash-shared"}, headers=h)
+    r = client.get("/lineage/dataset/hash-shared", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+    assert r.json()["versions"][0]["model_id"] == mid
+
+def test_lineage_by_dataset_hash_not_found(client, tokens):
+    r = client.get("/lineage/dataset/hash-does-not-exist", headers=auth(tokens["viewer"]))
+    assert r.status_code == 404
+
+def test_lineage_by_version_id(client, tokens):
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "linverm"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid}/datasets",
+        json={"dataset_name": "ds1", "dataset_hash": "hash-fff"}, headers=h)
+    r = client.get(f"/lineage/version/{vid}", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.json()["total"] == 1
+
+def test_lineage_across_multiple_versions(client, tokens):
+    """Same dataset hash linked to two different versions should surface both."""
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "linmultim"}, headers=h).json()["id"]
+    vid1 = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    vid2 = client.post(f"/models/{mid}/versions", json={"version": "2.0.0"}, headers=h).json()["id"]
+    client.post(f"/models/{mid}/versions/{vid1}/datasets",
+        json={"dataset_name": "shared", "dataset_hash": "hash-multi"}, headers=h)
+    client.post(f"/models/{mid}/versions/{vid2}/datasets",
+        json={"dataset_name": "shared", "dataset_hash": "hash-multi"}, headers=h)
+    r = client.get("/lineage/dataset/hash-multi", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.json()["total"] == 2
+
+
+# ── Signed Download URL fallback (Phase 5A) ──────────────────────────────────
+
+def test_download_falls_back_to_streaming_without_signed_url_support(client, tokens):
+    """
+    The test fixture uses LocalStorage, which inherits StorageBase's default
+    get_signed_url() returning None. This asserts the download endpoint
+    correctly falls back to streaming rather than erroring, exercising the
+    exact code path described in the Phase 5A handoff notes. A true signed-URL
+    redirect (307) can't be exercised here without a real GCS bucket — that
+    integration path is intentionally left for manual/staging verification.
+    """
+    h   = auth(tokens["ml"])
+    mid = client.post("/models", json={"name": "sigfallback"}, headers=h).json()["id"]
+    vid = client.post(f"/models/{mid}/versions", json={"version": "1.0.0"}, headers=h).json()["id"]
+    data = b"weights content"
+    aid = client.post(
+        f"/models/{mid}/versions/{vid}/artifacts",
+        files={"file": ("w.bin", io.BytesIO(data), "application/octet-stream")},
+        data={"artifact_type": "weights"},
+        headers=h,
+    ).json()["id"]
+    r = client.get(f"/models/{mid}/versions/{vid}/artifacts/{aid}/download", headers=auth(tokens["viewer"]))
+    assert r.status_code == 200
+    assert r.content == data
+    assert "storage.googleapis.com" not in r.headers.get("location", "")

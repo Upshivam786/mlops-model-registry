@@ -38,6 +38,11 @@ class ModelVersion(Base):
     artifacts    = relationship("ModelArtifact", back_populates="version", cascade="all, delete-orphan")
     training_run = relationship("TrainingRun", back_populates="version", uselist=False, cascade="all, delete-orphan")
 
+    # ← Phase 5B: one model card per version
+    model_card   = relationship("ModelCard", back_populates="version", uselist=False, cascade="all, delete-orphan")
+    # ← Phase 5C: many dataset links per version
+    dataset_links = relationship("DatasetLink", back_populates="version", cascade="all, delete-orphan")
+
     def __repr__(self):
         return f"<ModelVersion(id={self.id}, model_id={self.model_id}, version='{self.version}')>"
 
@@ -142,3 +147,68 @@ class TrainingRun(Base):
 
     def __repr__(self):
         return f"<TrainingRun(id={self.id}, version_id={self.version_id}, accuracy={self.accuracy})>"
+
+
+# ── Phase 5B — Model Cards ───────────────────────────────────────────────────
+
+class ModelCard(Base):
+    """
+    Structured governance documentation for a single model version.
+    One card per version (1:1, like TrainingRun) — covers intended use,
+    limitations, ethical considerations, and evaluation context that
+    don't belong as raw metrics but matter for responsible deployment.
+    """
+    __tablename__ = "model_cards"
+
+    id                      = Column(Integer, primary_key=True, index=True)
+    version_id              = Column(Integer, ForeignKey("model_versions.id"), nullable=False, unique=True)
+
+    intended_use            = Column(Text, nullable=True)
+    limitations             = Column(Text, nullable=True)
+    ethical_considerations  = Column(Text, nullable=True)
+    training_data_summary   = Column(Text, nullable=True)
+    evaluation_summary      = Column(Text, nullable=True)
+    caveats_and_recommendations = Column(Text, nullable=True)
+
+    created_by              = Column(String(100), nullable=False)
+    created_at              = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at              = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    version = relationship("ModelVersion", back_populates="model_card")
+
+    def __repr__(self):
+        return f"<ModelCard(id={self.id}, version_id={self.version_id})>"
+
+
+# ── Phase 5C — Data Lineage ──────────────────────────────────────────────────
+
+class DatasetLink(Base):
+    """
+    Links a training dataset to a model version. Many-to-one from the
+    dataset's perspective (one dataset can train many versions), and
+    one-to-many from the version's perspective (a version could in
+    principle cite more than one dataset, e.g. pretrain + finetune sets).
+
+    dataset_hash is the primary identity of a dataset for lineage purposes —
+    two links with the same hash refer to the same physical dataset even if
+    dataset_name differs across teams/runs.
+    """
+    __tablename__ = "dataset_links"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    version_id    = Column(Integer, ForeignKey("model_versions.id"), nullable=False, index=True)
+
+    dataset_name  = Column(String(255), nullable=False)
+    dataset_hash  = Column(String(255), nullable=False, index=True)
+    dataset_uri   = Column(String(500), nullable=True)   # e.g. gs://bucket/path or local path
+    role          = Column(String(50), default="training", nullable=False)  # training | validation | test
+    row_count     = Column(Integer, nullable=True)
+    notes         = Column(Text, nullable=True)
+
+    linked_by     = Column(String(100), nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    version = relationship("ModelVersion", back_populates="dataset_links")
+
+    def __repr__(self):
+        return f"<DatasetLink(id={self.id}, version_id={self.version_id}, dataset_hash='{self.dataset_hash}')>"
