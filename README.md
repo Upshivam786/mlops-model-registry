@@ -2,9 +2,9 @@
 
 **Author: Shivam Upadhyay**
 **GitHub: [Upshivam786/mlops-model-registry](https://github.com/Upshivam786/mlops-model-registry)**
-**Version: 0.3.0**
+**Version: 0.5.0**
 
-A production-grade MLOps Model Registry built from scratch with **FastAPI**, **PostgreSQL**, **Google Cloud Storage**, **JWT Authentication**, **Role-Based Access Control**, **Audit Logging**, and **Experiment Tracking**. Designed and implemented to manage the complete machine learning model lifecycle — from experiment to production.
+A production-grade MLOps Model Registry built from scratch with **FastAPI**, **PostgreSQL**, **Google Cloud Storage**, **JWT Authentication**, **Role-Based Access Control**, **Audit Logging**, **Experiment Tracking**, a **Python SDK**, **CI/CD**, and **Governance features** (model cards, data lineage, signed download URLs). Designed and implemented to manage the complete machine learning model lifecycle — from experiment to production.
 
 ---
 
@@ -179,6 +179,92 @@ GET /models/15/versions/compare
 
 ---
 
+### Phase 4 — SDK, CI/CD, Role Management, Refresh Tokens (v0.4.0) ✅
+
+Adds the tooling and operational pieces that turn a working API into a
+maintainable platform: a Python client, automated testing on every push,
+self-service role management, and longer-lived sessions.
+
+- **Python SDK** — `sdk/kimchi_sdk/client.py`, a `ModelRegistry` class
+  wrapping every API endpoint so consumers don't have to hand-write curl
+  or `requests` calls.
+- **GitHub Actions CI** — runs the full test suite on every push using
+  SQLite in-memory, no PostgreSQL container required in CI. `bcrypt==4.0.1`
+  and `passlib[bcrypt]==1.7.4` are pinned in both `pyproject.toml` and the
+  workflow file — newer bcrypt releases break passlib's bundled compat
+  layer, so this pin is load-bearing, not cosmetic.
+- **Admin role management** — `GET /admin/users`, `PUT
+  /admin/users/{id}/role`, `DELETE /admin/users/{id}` remove the need for
+  direct database access to promote or deactivate users. (The very first
+  admin in a fresh environment still requires one direct DB write — see
+  `docs/troubleshooting.md` for the bootstrap pattern.)
+- **Refresh tokens** — `POST /auth/refresh`; access tokens now expire in
+  60 minutes, refresh tokens in 7 days, and `/auth/login` returns both.
+
+**Verified:**
+
+```
+201 — SDK client successfully creates a model end-to-end
+38  — tests passing in GitHub Actions on every push
+200 — GET /admin/users (admin only)
+200 — PUT /admin/users/{id}/role promotes a user
+403 — admin cannot change their own role (self-demotion guard)
+200 — POST /auth/refresh returns a new access token from a valid refresh token
+```
+
+---
+
+### Phase 5 — Monitoring and Governance (v0.5.0) ✅
+
+Adds three governance and operability features on top of the existing
+platform: direct-from-storage downloads, structured model documentation,
+and dataset-to-model traceability.
+
+- **Signed GCS Download URLs (5A)** — the artifact download endpoint now
+  tries to generate a time-limited V4 signed URL first, so large files
+  transfer directly from GCS to the client instead of streaming through
+  the API process. Falls back to the original streaming behavior
+  automatically when the storage backend doesn't support it (local dev)
+  or signing fails for any reason — the fallback never raises an error to
+  the caller. See `docs/troubleshooting.md` for the most common reason
+  signing fails (Application Default Credentials lacking a private key).
+- **Model Cards (5B)** — a new `model_cards` table, one per model version,
+  capturing intended use, limitations, ethical considerations, training
+  data summary, evaluation summary, and recommendations. `ml_engineer+`
+  can create and update a card; deleting one is admin-only.
+- **Data Lineage (5C)** — a new `dataset_links` table connects model
+  versions to the datasets that trained, validated, or tested them. Query
+  in either direction: `GET /lineage/version/{id}` for "what data fed this
+  model," or `GET /lineage/dataset/{hash}` for "which deployed models used
+  this dataset" — the latter is the query you'd run if a dataset turns out
+  to be biased, leaked, or otherwise compromised after the fact.
+
+**Verified:**
+
+```
+201 — create model card
+200 — get / update model card
+400 — duplicate model card create rejected
+204 — admin-only model card delete
+403 — viewer and ml_engineer blocked from deleting a card
+201 — link dataset to a version
+200 — list datasets linked to a version
+204 — delete a dataset link (admin only)
+200 — lineage by dataset hash (joins dataset_links → model_versions → models)
+404 — lineage by dataset hash with no matches
+200 — lineage by version id
+307 — signed URL redirect when GCS signing succeeds
+200 — streamed fallback when signing is unavailable or fails
+```
+
+64 tests passing (45 carried over from Phases 1–4, plus 19 new for Phase 5),
+0 regressions. Migration chain verified end-to-end on PostgreSQL —
+`b2c3d4e5f6a7 → c3d4e5f6a7b8`, with upgrade, downgrade, and re-upgrade all
+confirmed clean. Full step-by-step curl walkthrough in
+`docs/phase5_governance_testing.md`.
+
+---
+
 ## Architecture
 
 ```
@@ -235,33 +321,47 @@ mlops-model-registry/
 │   └── versions/
 │       ├── d242ad00ce59_init.py
 │       ├── 43aa7442684c_add_users_table.py
-│       ├── add_audit_logs_table.py          ← Phase 2
-│       └── add_training_runs_table.py       ← Phase 3
+│       ├── add_audit_logs_table.py                    ← Phase 2
+│       ├── add_training_runs_table.py                 ← Phase 3
+│       └── add_model_cards_and_dataset_links.py        ← Phase 5
 ├── app/
 │   ├── auth/
 │   │   ├── dependencies.py    # get_current_user, require_ml_engineer, require_admin
 │   │   ├── security.py        # JWT encode/decode, bcrypt hashing
 │   │   └── __init__.py
 │   ├── routers/
-│   │   ├── auth.py            # /auth/register, /auth/login, /auth/login/swagger
-│   │   ├── models.py          # All model/version/artifact routes + compare
+│   │   ├── auth.py            # /auth/register, /auth/login, /auth/login/swagger, /auth/refresh
+│   │   ├── models.py          # All model/version/artifact routes + compare + signed download
 │   │   ├── audit.py           # GET /audit-logs (Phase 2)
-│   │   └── experiments.py     # POST/GET training-run, GET /experiments (Phase 3)
+│   │   ├── experiments.py     # POST/GET training-run, GET /experiments (Phase 3)
+│   │   ├── admin.py           # User role management (Phase 4)
+│   │   ├── model_cards.py     # POST/GET/PUT/DELETE /card (Phase 5)
+│   │   └── lineage.py         # Dataset links + lineage queries (Phase 5)
 │   ├── storage/
-│   │   ├── base.py            # StorageBase abstract class
+│   │   ├── base.py            # StorageBase abstract class + get_signed_url() default (Phase 5)
 │   │   ├── local.py           # LocalStorage implementation
-│   │   └── gcs.py             # GCSStorage implementation
+│   │   └── gcs.py             # GCSStorage implementation + get_signed_url() (Phase 5)
 │   ├── audit.py               # write_audit_log() helper (Phase 2)
 │   ├── dependencies.py        # get_db(), get_storage()
-│   ├── models.py              # ORM: Model, ModelVersion, ModelArtifact, User, AuditLog, TrainingRun
+│   ├── models.py              # ORM: Model, ModelVersion, ModelArtifact, User, AuditLog,
+│   │                          #      TrainingRun, ModelCard, DatasetLink
 │   ├── schemas.py             # All Pydantic request/response schemas
 │   └── main.py                # FastAPI app, middleware, router registration
+├── sdk/                                                ← Phase 4
+│   ├── kimchi_sdk/
+│   │   ├── __init__.py
+│   │   └── client.py          # ModelRegistry client class
+│   └── setup.py
 ├── docs/
 │   ├── phase2_audit_log_testing.md
-│   └── phase3_experiment_tracking_testing.md
+│   ├── phase3_experiment_tracking_testing.md
+│   ├── phase5_governance_testing.md                    ← Phase 5
+│   └── troubleshooting.md                              ← Phase 5
 ├── tests/
-│   ├── test_api.py
+│   ├── test_api.py            # 64 tests: Phases 1–5
 │   └── test_storage.py
+├── .github/workflows/
+│   └── ci.yml                                          ← Phase 4
 ├── model_artifacts/           # Local storage directory (dev only)
 ├── docker-compose.yml
 ├── alembic.ini
@@ -308,6 +408,21 @@ training_runs                       ← Phase 3
 ├── metrics (JSON), accuracy (indexed), f1_score (indexed), loss
 ├── framework, framework_version, training_duration
 ├── created_by
+└── created_at (indexed)
+
+model_cards                         ← Phase 5
+├── id, version_id (FK, unique)
+├── intended_use, limitations, ethical_considerations
+├── training_data_summary, evaluation_summary
+├── caveats_and_recommendations
+├── created_by
+└── created_at, updated_at
+
+dataset_links                       ← Phase 5
+├── id, version_id (FK, indexed)
+├── dataset_name, dataset_hash (indexed), dataset_uri
+├── role (training|validation|test), row_count, notes
+├── linked_by
 └── created_at (indexed)
 ```
 
@@ -491,6 +606,33 @@ Audit log filters: `?action=PROMOTE`, `?resource_type=model_version`, `?username
 
 Experiment filters: `?min_accuracy=0.90`, `?min_f1=0.85`, `?max_loss=0.2`, `?stage=prod`, `?framework=pytorch`, `?dataset_name=invoices-q1-2026`, `?sort_by=f1_score&order=desc`
 
+### Admin (Phase 4)
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| GET | `/admin/users` | admin | List all users |
+| PUT | `/admin/users/{id}/role` | admin | Change a user's role |
+| DELETE | `/admin/users/{id}` | admin | Deactivate a user (admin cannot change their own role) |
+
+### Model Cards (Phase 5)
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST | `/models/{id}/versions/{vid}/card` | ml_engineer+ | Create a model card (one per version) |
+| GET | `/models/{id}/versions/{vid}/card` | viewer+ | Get the model card for a version |
+| PUT | `/models/{id}/versions/{vid}/card` | ml_engineer+ | Update an existing model card |
+| DELETE | `/models/{id}/versions/{vid}/card` | admin | Delete a model card |
+
+### Data Lineage (Phase 5)
+
+| Method | Endpoint | Role | Description |
+|--------|----------|------|-------------|
+| POST | `/models/{id}/versions/{vid}/datasets` | ml_engineer+ | Link a dataset to a version |
+| GET | `/models/{id}/versions/{vid}/datasets` | viewer+ | List datasets linked to a version |
+| DELETE | `/models/{id}/versions/{vid}/datasets/{link_id}` | admin | Remove a dataset link |
+| GET | `/lineage/dataset/{hash}` | viewer+ | All model versions that used a dataset |
+| GET | `/lineage/version/{vid}` | viewer+ | All datasets that fed a specific version |
+
 ---
 
 ## End-to-End Workflow
@@ -670,28 +812,17 @@ Requires GCP credentials via `gcloud auth application-default login` or a servic
 
 ## Roadmap
 
-### Phase 4 — CI/CD and Developer Experience (Planned)
-
-- GitHub Actions workflow — auto-run migrations and test suite on every push
-- Python SDK — `from kimchi import ModelRegistry; registry.log_run(...)`
-- Admin endpoint for role management — no direct DB access needed
-- Token refresh endpoint
-
-### Phase 5 — Monitoring and Governance (Planned)
-
-- Model drift detection integration
-- Performance monitoring hooks
-- Signed GCS download URLs (time-limited, no auth token needed in serving)
-- Model cards — standardised documentation per version
-- Data lineage — link training datasets to model versions
-
-### Phase 6 — Infrastructure (Planned)
+### Phase 6 — Infrastructure and Monitoring (Planned)
 
 - Kubernetes deployment manifests
 - Terraform infrastructure as code
 - S3 / MinIO storage backend (AWS)
 - Multi-environment deployment (dev / staging / prod namespaces)
 - SSO / LDAP role integration
+- Model drift detection integration *(carried over from the original
+  Phase 5 scope — not yet built; Phase 5 shipped model cards, data
+  lineage, and signed URLs only)*
+- Performance monitoring hooks *(same as above)*
 
 ---
 
